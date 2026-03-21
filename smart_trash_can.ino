@@ -10,7 +10,11 @@
 #define TRIG_PIN 4
 #define ECHO_PIN 5
 
-// настройки
+// первый запуск
+#define INIT_ADDR 1023  // номер резервной ячейки
+#define INIT_KEY 67     // ключ первого запуска
+
+// настройки(заводские)
 struct Settings {
   int ACTIVATION_HEIGHT = 25;     // высота срабатывания   (сантиметры)
   int CAP_TIME = 5000;            // время открытой крышки (миллисекунды)
@@ -43,7 +47,8 @@ void processCommand(String command)
     Serial.println("open           - Manually open lid");
     Serial.println("close          - Manually close lid");
     Serial.println("auto           - automatic lid control");
-    Serial.println("set            - takes 2 arguments: the setting name and the value"); // не доделано
+    Serial.println("version        - print version");
+    Serial.println("set            - change settings"); // не доделано
     Serial.println("==========================");
   }
   else if (command == "settings")
@@ -61,13 +66,17 @@ void processCommand(String command)
   {
     debugMode = !debugMode;
   }
+  else if (command == "version")
+  {
+    Serial.println("\nversion: 1.0.1");
+  }
   else if (command == "close") // принудительно закрыть
   {
     LidServo.write(settings.CLOSE_ANGLE);
     state = 5;
     Serial.println("Lid manually closed. Send 'auto' to return to automatic mode.");
   }
-  else if (command == "open")  // принудительно закрыть
+  else if (command == "open")  // принудительно открыть
   {
     LidServo.write(settings.OPEN_ANGLE);
     tmr1 = millis();           // перед переходом в состояние 3 обновляем таймер 1
@@ -88,6 +97,10 @@ void processCommand(String command)
     {
       Serial.println("Already in automatic mode.");
     }
+  }
+  else if (command == "set")
+  {
+    // TODO: set арг1 арг2, где арг1 настройка значение которой будет изменено, а арг2 это новое значение
   }
   else
   {
@@ -113,6 +126,17 @@ void setup() {
 
   Serial.println("programm started");
 
+  if (EEPROM.read(INIT_ADDR) != INIT_KEY) { // если первый запуск
+    EEPROM.write(INIT_ADDR, INIT_KEY);      // записать ключ в яйчейку ключа
+
+    // в случае первого запуска(или сброса до заводских) загрузить заводские настройки
+    EEPROM.put(0, settings);
+  }
+  else // если запуск все же не первый подгрузим настройки из EEPROM
+  {
+    EEPROM.get(0, settings); // читать настройки
+  }
+
   // сенсор
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
@@ -127,7 +151,7 @@ void loop() {
   if (Serial.available() > 0) {                     // если доступна комманда обрабатываем
     String command = Serial.readStringUntil('\n');  // читаем команду до \n (перенос строки)
     command.toLowerCase();                          // приводим к нижнему регистру
-    command.trim();                                 // Удаляем лишние пробелы и символы переноса строки
+    command.trim();                                 // Удаляем ЛИШНИЕ пробелы и символы переноса строки
     processCommand(command);                        // функция обработки
   }
 
@@ -138,7 +162,7 @@ void loop() {
     Serial.print("\t");
     Serial.print("sensorDistance: ");
     Serial.print(sensorDistance);
-    Serial.print("\t");  
+    Serial.print("\t");
     Serial.print("mode: ");
     if(state == 5 or state == 6)
     {
