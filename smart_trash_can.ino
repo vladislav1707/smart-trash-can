@@ -3,6 +3,7 @@
 // 2. изменение настроек через терминал и их сохранение в EEPROM
 
 #include <Servo.h>
+#include <EEPROM.h>
 
 // пины
 #define SERVO_PIN 3
@@ -10,12 +11,16 @@
 #define ECHO_PIN 5
 
 // настройки
-#define ACTIVATION_HEIGHT 25   // высота срабатывания   (сантиметры)
-#define CAP_TIME 5000          // время открытой крышки (миллисекунды)
-#define OPEN_ANGLE 90          // угол открытия крышки  (градусы)
-#define CLOSE_ANGLE 0          // угол закрытия крышки  (градусы)
-#define LID_OPEN_TIME 800      // время открытия крышки (миллисекунды)
-#define LID_CLOSE_TIME 900     // время закрытия крышки (миллисекунды)
+struct Settings {
+  int ACTIVATION_HEIGHT = 25;     // высота срабатывания   (сантиметры)
+  int CAP_TIME = 5000;            // время открытой крышки (миллисекунды)
+  int OPEN_ANGLE = 0;             // угол открытия крышки  (градусы)
+  int CLOSE_ANGLE = 150;          // угол закрытия крышки  (градусы)
+  int LID_OPEN_TIME = 800;        // время открытия крышки (миллисекунды)
+  int LID_CLOSE_TIME = 900;       // время закрытия крышки (миллисекунды)
+};
+
+Settings settings;
 
 int debugMode = 0;              // режим отладки
 
@@ -38,17 +43,18 @@ void processCommand(String command)
     Serial.println("open           - Manually open lid");
     Serial.println("close          - Manually close lid");
     Serial.println("auto           - automatic lid control");
+    Serial.println("set            - takes 2 arguments: the setting name and the value"); // не доделано
     Serial.println("==========================");
   }
   else if (command == "settings")
   {
     Serial.println("\n=== CURRENT SETTINGS===");
-    Serial.print("ACTIVATION_HEIGHT: "); Serial.println(ACTIVATION_HEIGHT);
-    Serial.print("CAP_TIME: "); Serial.println(CAP_TIME);
-    Serial.print("OPEN_ANGLE: "); Serial.println(OPEN_ANGLE);
-    Serial.print("CLOSE_ANGLE: "); Serial.println(CLOSE_ANGLE);
-    Serial.print("LID_OPEN_TIME: "); Serial.println(LID_OPEN_TIME);
-    Serial.print("LID_CLOSE_TIME: "); Serial.println(LID_CLOSE_TIME);
+    Serial.print("ACTIVATION_HEIGHT: "); Serial.println(settings.ACTIVATION_HEIGHT);
+    Serial.print("CAP_TIME: "); Serial.println(settings.CAP_TIME);
+    Serial.print("OPEN_ANGLE: "); Serial.println(settings.OPEN_ANGLE);
+    Serial.print("CLOSE_ANGLE: "); Serial.println(settings.CLOSE_ANGLE);
+    Serial.print("LID_OPEN_TIME: "); Serial.println(settings.LID_OPEN_TIME);
+    Serial.print("LID_CLOSE_TIME: "); Serial.println(settings.LID_CLOSE_TIME);
     Serial.println("==========================");
   }
   else if (command == "debug")
@@ -57,13 +63,13 @@ void processCommand(String command)
   }
   else if (command == "close") // принудительно закрыть
   {
-    LidServo.write(CLOSE_ANGLE);
+    LidServo.write(settings.CLOSE_ANGLE);
     state = 5;
     Serial.println("Lid manually closed. Send 'auto' to return to automatic mode.");
   }
   else if (command == "open")  // принудительно закрыть
   {
-    LidServo.write(OPEN_ANGLE);
+    LidServo.write(settings.OPEN_ANGLE);
     tmr1 = millis();           // перед переходом в состояние 3 обновляем таймер 1
     state = 6;
     Serial.println("Lid manualy opened. Send 'auto' to return to automatic mode.");
@@ -112,7 +118,7 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
 
   LidServo.attach(SERVO_PIN);
-  LidServo.write(CLOSE_ANGLE); // изначально при запуске программы крышка закрывается
+  LidServo.write(settings.CLOSE_ANGLE); // изначально при запуске программы крышка закрывается
 }
 
 void loop() {
@@ -146,26 +152,26 @@ void loop() {
 
 switch (state) {
   case 1:                   //закрыто, когда подносят руку переходит в состояние 2(открывается)
-    if(sensorDistance <= ACTIVATION_HEIGHT)
+    if(sensorDistance <= settings.ACTIVATION_HEIGHT)
     {
-      LidServo.write(OPEN_ANGLE);
+      LidServo.write(settings.OPEN_ANGLE);
       state = 2;            // переходим в состояние 2(открывается)
     }
     break;
   case 2:                   // открывается, ждет и переходит в состояние 3(открыто)
-    delay(LID_OPEN_TIME);   // ждем
+    delay(settings.LID_OPEN_TIME);   // ждем
     tmr1 = millis();        // перед переходом в состояние 3 обновляем таймер 1
     state = 3;              // переходим в состояние 3(открыто)
     break;
   case 3:                   // открыто, ожидает определенное время и переходит в состояние 4(закрывается), обнаружение руки обновляет таймер 1
     {
-      if(millis() - tmr1 >= CAP_TIME)
+      if(millis() - tmr1 >= settings.CAP_TIME)
       {
-        LidServo.write(CLOSE_ANGLE);
+        LidServo.write(settings.CLOSE_ANGLE);
         tmr2 = millis();    // таймер 2 обновляется
         state = 4;          // ждем, и переходим с состояние 4(закрывается)
       }
-      if(sensorDistance <= ACTIVATION_HEIGHT)
+      if(sensorDistance <= settings.ACTIVATION_HEIGHT)
       {
         tmr1 = millis();    // таймер 1 обновляется
       }
@@ -173,12 +179,12 @@ switch (state) {
     break;
   case 4:                   // закрывается, при обнаружении руки переходит в состоянияе 2(открывается). Со временем перейдет в состояние 1(закрыто) если не обнаружит руку
     {
-      if(sensorDistance <= ACTIVATION_HEIGHT)
+      if(sensorDistance <= settings.ACTIVATION_HEIGHT)
       {
-        LidServo.write(OPEN_ANGLE);
+        LidServo.write(settings.OPEN_ANGLE);
         state = 2;          // переход в состояние 2(открывается)
       }
-      else if(millis() - tmr2 >= LID_CLOSE_TIME)
+      else if(millis() - tmr2 >= settings.LID_CLOSE_TIME)
       {
         state = 1;          // переход в состояние 1(закрыто)
       }
