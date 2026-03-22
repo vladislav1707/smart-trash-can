@@ -2,6 +2,8 @@
 // 1. режим энергосбережения когда долго не используется
 // 2. изменение настроек через терминал и их сохранение в EEPROM
 
+// TODO: сделать автосохранение настроек при изменении
+
 #include <Servo.h>
 #include <EEPROM.h>
 
@@ -15,6 +17,7 @@
 #define INIT_KEY 67     // ключ первого запуска
 
 // настройки(заводские)
+// в настройках 6 целочисленных значений(int весит 2 байта), значит настройки весят 12 байт
 struct Settings {
   int ACTIVATION_HEIGHT = 25;     // высота срабатывания   (сантиметры)
   int CAP_TIME = 5000;            // время открытой крышки (миллисекунды)
@@ -48,7 +51,7 @@ void processCommand(String command)
     Serial.println("close          - Manually close lid");
     Serial.println("auto           - automatic lid control");
     Serial.println("version        - print version");
-    Serial.println("set            - change settings"); // не доделано
+    Serial.println("set            - changes settings, takes 2 arguments(setting name and new value)"); // не доделано
     Serial.println("==========================");
   }
   else if (command == "settings")
@@ -58,30 +61,29 @@ void processCommand(String command)
     Serial.print("CAP_TIME: "); Serial.println(settings.CAP_TIME);
     Serial.print("OPEN_ANGLE: "); Serial.println(settings.OPEN_ANGLE);
     Serial.print("CLOSE_ANGLE: "); Serial.println(settings.CLOSE_ANGLE);
-    Serial.print("LID_OPEN_TIME: "); Serial.println(settings.LID_OPEN_TIME);
-    Serial.print("LID_CLOSE_TIME: "); Serial.println(settings.LID_CLOSE_TIME);
     Serial.println("==========================");
   }
   else if (command == "debug")
   {
     debugMode = !debugMode;
+    Serial.println("debug mode switched");
   }
   else if (command == "version")
   {
-    Serial.println("\nversion: 1.0.1");
+    Serial.println("\nversion: 1.1.0");
   }
   else if (command == "close") // принудительно закрыть
   {
     LidServo.write(settings.CLOSE_ANGLE);
     state = 5;
-    Serial.println("Lid manually closed. Send 'auto' to return to automatic mode.");
+    Serial.println("\nLid manually closed. Send 'auto' to return to automatic mode.");
   }
   else if (command == "open")  // принудительно открыть
   {
     LidServo.write(settings.OPEN_ANGLE);
     tmr1 = millis();           // перед переходом в состояние 3 обновляем таймер 1
     state = 6;
-    Serial.println("Lid manualy opened. Send 'auto' to return to automatic mode.");
+    Serial.println("\nLid manualy opened. Send 'auto' to return to automatic mode.");
   }
   else if (command == "auto")  // переход в автоматический режим
   {
@@ -95,16 +97,117 @@ void processCommand(String command)
     }
     else
     {
-      Serial.println("Already in automatic mode.");
+      Serial.println("\nAlready in automatic mode.");
     }
   }
-  else if (command == "set")
+  else if (command[0] == 's' && command[1] == 'e' && command[2] == 't' && command[3] == ' ') // без проверки на пробел в конце команда settings будет работать не верно
   {
     // TODO: set арг1 арг2, где арг1 настройка значение которой будет изменено, а арг2 это новое значение
+    // TODO: в этой части так же должна проходить запись в EEPROM(только когда значение отличается от старого)
+    // TODO: самая сложная часть это именно разделение по пробелам, дальше все легко(проверка на правильность ввода и т.д)
+    
+    // посчитать кол-во пробелов(и следовательно аргументов)
+    int argNum = 0;
+    for(int i = 0; i < command.length(); i++)
+    {
+      if(command.charAt(i) == ' ')
+      {
+        argNum++;
+      }
+    }
+    if (argNum != 2) // при неверном количестве аргументов написать об этом
+    {
+      Serial.println("\nIncorrect number of arguments");
+    }
+    else // выполнить если кол-во аргументов верное
+    {
+      bool success = false; // если были проведены изменения то true, иначе false
+      String processedCommand = command;
+      processedCommand.toUpperCase();
+      processedCommand.remove(0, 3);      // удалить set
+      processedCommand.trim();            // удалить ЛИШНИЕ пробелы
+
+      String settingName; // имя изменяемой настройки
+      String newValue;    // новое значение настройки
+
+      // отделить аргументы друг от друга(пробел это разделитель)
+      for(int i = 0; i < processedCommand.length(); i++)
+      {
+        if (processedCommand.charAt(i) == ' ') // если дошел до пробела
+        {
+          // удалить то что после пробела и записать в settingName, и удалить с начала settingName.length() символов
+          settingName = processedCommand;
+          settingName.remove(i);
+          settingName.trim();
+          newValue = processedCommand;
+          newValue.remove(0, settingName.length());
+          newValue.trim();
+          break;
+        }
+      }
+      int newValueInt = newValue.toInt();
+
+      if(settingName == "ACTIVATION_HEIGHT")
+      {
+        settings.ACTIVATION_HEIGHT = newValueInt;\
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else if(settingName == "CAP_TIME")
+      {
+        settings.CAP_TIME = newValueInt;
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else if(settingName == "OPEN_ANGLE")
+      {
+        settings.OPEN_ANGLE = newValueInt;
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else if(settingName == "CLOSE_ANGLE")
+      {
+        settings.CLOSE_ANGLE = newValueInt;
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else if(settingName == "LID_OPEN_TIME")
+      {
+        settings.LID_OPEN_TIME = newValueInt;
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else if(settingName == "LID_CLOSE_TIME")
+      {
+        settings.LID_CLOSE_TIME = newValueInt;
+        success = true;
+        EEPROM.put(0, settings); // обновить настройки
+      }
+      else
+      {
+        Serial.println("Invalid setting name");
+      }
+
+      if (success == true)
+      {
+      Serial.println("\nValue changed");
+      }
+      EEPROM.put(0, settings);
+    }
+  }
+  else if (command == "set") // так как выше проверяется с пробелом на конце(чтобы не было ошибок) тут я сделал небольшой костыль для вывода о неверном кол-ве аргументов
+  {
+    Serial.println("\nIncorrect number of arguments");
+  }
+  else if (command == "reset_settings")
+  {
+    // сброс до заводских, но потребуется перезагрузка. именно 255 потому что это значение по умолчанию
+    EEPROM.write(INIT_ADDR, 255);
+    Serial.println("\The next time you reboot, the settings will be reset to default");
   }
   else
   {
-    Serial.println("Command not found. Type 'help' to see a list of commands");
+    Serial.println("\nCommand not found. Type 'help' to see a list of commands");
   }
 }
 
